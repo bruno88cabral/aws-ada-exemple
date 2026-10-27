@@ -7,7 +7,7 @@ import { build } from "esbuild";
 const banner = `import { createRequire as __createRequire } from "node:module";
 const require = __createRequire(import.meta.url);`;
 
-for (const nome of ["processar-pedido"]) {
+for (const nome of ["processar-pedido", "enviar-email"]) {
   await build({
     entryPoints: [`lambdas/${nome}/handler.ts`],
     bundle: true,

@@ -15,10 +15,10 @@ Parameters:
     Type: String
     NoEcho: true
     Description: "DATABASE_URL da processar-pedido. Para RDS termine a URL com ?uselibpqcompat=true&sslmode=require"
-  SnsTopicArn:
+  SesFrom:
     Type: String
-    Default: ""
-    Description: ARN do topico pedido-confirmado (preenchido quando o SNS entrar no template)
+    Default: bruno88cabral@gmail.com
+    Description: Remetente do e-mail (identidade verificada no SES; em sandbox, igual ao destinatario)
 
 Resources:
   FotosBucket:
@@ -66,10 +66,12 @@ Resources:
       Environment:
         Variables:
           DATABASE_URL: !Ref DatabaseUrl
-          SNS_TOPIC_ARN: !Ref SnsTopicArn
+          SNS_TOPIC_ARN: !Ref PedidoConfirmadoTopic
       Policies:
         - SQSPollerPolicy:
             QueueName: !GetAtt PedidosQueue.QueueName
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt PedidoConfirmadoTopic.TopicName
       Events:
         Pedidos:
           Type: SQS
@@ -79,6 +81,35 @@ Resources:
             FunctionResponseTypes:
               - ReportBatchItemFailures
 
+  PedidoConfirmadoTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: pedido-confirmado
+
+  EnviarEmailFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: enviar-email
+      Runtime: nodejs22.x
+      Handler: index.handler
+      CodeUri: dist/enviar-email/
+      Timeout: 25
+      Environment:
+        Variables:
+          SES_FROM: !Ref SesFrom
+      Policies:
+        # SESv2 SendEmail usa a acao ses:SendEmail. Resource "*" porque o ARN da
+        # identidade depende da conta do aluno e do formato (e-mail ou dominio).
+        - Statement:
+            - Effect: Allow
+              Action: ses:SendEmail
+              Resource: "*"
+      Events:
+        PedidoConfirmado:
+          Type: SNS
+          Properties:
+            Topic: !Ref PedidoConfirmadoTopic
+
 Outputs:
   BucketName:
     Description: Valor de S3_BUCKET no .env.local
@@ -86,3 +117,6 @@ Outputs:
   PedidosQueueUrl:
     Description: Valor de SQS_QUEUE_URL no .env.local
     Value: !Ref PedidosQueue
+  PedidoConfirmadoTopicArn:
+    Description: Valor de SNS_TOPIC_ARN (a processar-pedido ja recebe do template)
+    Value: !Ref PedidoConfirmadoTopic

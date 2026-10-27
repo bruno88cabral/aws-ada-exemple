@@ -115,8 +115,55 @@ describe("template.yaml - Lambda processar-pedido", () => {
     expect(p.Environment.Variables.DATABASE_URL).toEqual({ Ref: "DatabaseUrl" });
   });
 
-  it("SNS_TOPIC_ARN vem de parâmetro (vazio até o SNS entrar)", () => {
-    expect(p.Environment.Variables.SNS_TOPIC_ARN).toEqual({ Ref: "SnsTopicArn" });
-    expect(t.Parameters.SnsTopicArn.Default).toBe("");
+  it("SNS_TOPIC_ARN é o !Ref do tópico (parâmetro placeholder removido)", () => {
+    expect(p.Environment.Variables.SNS_TOPIC_ARN).toEqual({ Ref: "PedidoConfirmadoTopic" });
+    expect(t.Parameters.SnsTopicArn).toBeUndefined();
+  });
+
+  it("policy sns:Publish no tópico (SNSPublishMessagePolicy)", () => {
+    expect(p.Policies).toContainEqual({
+      SNSPublishMessagePolicy: { TopicName: { "Fn::GetAtt": ["PedidoConfirmadoTopic", "TopicName"] } },
+    });
+  });
+});
+
+describe("template.yaml - tópico e Lambda enviar-email", () => {
+  const topico = t.Resources.PedidoConfirmadoTopic;
+  const fn = t.Resources.EnviarEmailFunction;
+  const p = fn.Properties ?? {};
+
+  it("tópico pedido-confirmado", () => {
+    expect(topico.Type).toBe("AWS::SNS::Topic");
+    expect(topico.Properties?.TopicName).toBe("pedido-confirmado");
+  });
+
+  it("nodejs22.x, código em dist/enviar-email, fora de VPC", () => {
+    expect(fn.Type).toBe("AWS::Serverless::Function");
+    expect(p.FunctionName).toBe("enviar-email");
+    expect(p.Runtime).toBe("nodejs22.x");
+    expect(p.Handler).toBe("index.handler");
+    expect(p.CodeUri).toBe("dist/enviar-email/");
+    expect(p.VpcConfig).toBeUndefined();
+  });
+
+  it("assina o tópico direto (evento SNS, sem fila)", () => {
+    const ev = p.Events.PedidoConfirmado;
+    expect(ev.Type).toBe("SNS");
+    expect(ev.Properties.Topic).toEqual({ Ref: "PedidoConfirmadoTopic" });
+  });
+
+  it("SES_FROM vem de parâmetro", () => {
+    expect(p.Environment.Variables.SES_FROM).toEqual({ Ref: "SesFrom" });
+    expect(t.Parameters.SesFrom.Default).toBe("bruno88cabral@gmail.com");
+  });
+
+  it("policy ses:SendEmail e nada além disso", () => {
+    const stmts = p.Policies.flatMap((x: { Statement?: unknown[] }) => x.Statement ?? []);
+    expect(stmts).toEqual([{ Effect: "Allow", Action: "ses:SendEmail", Resource: "*" }]);
+    expect(p.Policies).toHaveLength(1);
+  });
+
+  it("output com o ARN do tópico", () => {
+    expect(t.Outputs.PedidoConfirmadoTopicArn.Value).toEqual({ Ref: "PedidoConfirmadoTopic" });
   });
 });
