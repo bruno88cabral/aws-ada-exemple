@@ -1,0 +1,1 @@
+-- Schema do banco (tabelas itens, pedidos, pedido_itens) entra na MYK-970.

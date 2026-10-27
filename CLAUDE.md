@@ -1,0 +1,144 @@
+@AGENTS.md
+
+# Padaria na AWS
+
+Projeto de referência do módulo Cloud (Ada): catálogo e pedidos de uma padaria. Next.js 16 (App Router, TypeScript) local + AWS (S3, RDS Postgres, SQS, Lambda, SNS, SES). Este arquivo é a fonte dos nomes e regras; confira aqui antes de procurar fora.
+
+## Arquitetura fechada
+
+Fluxo: Browser -> Next (servidor) -> S3 (URL assinada PUT/GET), RDS, SQS `pedidos` (DLQ `pedidos-dlq` após 3 falhas) -> Lambda `processar-pedido` -> SNS `pedido-confirmado` -> Lambda `enviar-email` -> SES -> cliente.
+
+- O Next grava o pedido (transação) antes de enfileirar; a fila carrega só `{ pedidoId }`.
+- `processar-pedido` lê o RDS e faz `UPDATE ... SET status='confirmado' ... WHERE id=? AND status='recebido'`; só publica no SNS se afetou 1 linha.
+- `enviar-email` assina o SNS direto (sem fila no meio).
+- Erro na Lambda: a mensagem volta após o visibility timeout (30 s); na 3ª falha vai para a DLQ.
+- `/pedidos` faz polling de `GET /api/pedidos` a cada 2 s.
+- Foto: chave `itens/<uuid>.<ext>`; só jpeg/png/webp até 5 MB, validado no servidor antes de assinar.
+
+Decisões fechadas (não rediscutir):
+- Região `us-east-1`; Lambdas `nodejs22.x`.
+- Carrinho no browser (localStorage); credenciais do banco em variáveis de ambiente (Secrets Manager é desafio extra).
+- Next roda local; deploy na Vercel é opcional.
+- RDS com endpoint público protegido por Security Group (5432 só para o IP local).
+- Lambdas fora de VPC. Nada de NAT Gateway, VPC Endpoint ou ElastiCache.
+- SES em sandbox: mesmo e-mail remetente e destinatário (`bruno88cabral@gmail.com`).
+
+## Nomes dos recursos
+
+| Recurso | Nome |
+|---|---|
+| Região | `us-east-1` |
+| Fila SQS | `pedidos` |
+| DLQ | `pedidos-dlq` (`maxReceiveCount: 3`, visibility timeout 30 s) |
+| Tópico SNS | `pedido-confirmado` |
+| Lambda | `processar-pedido` (roles: `AWSLambdaSQSQueueExecutionRole` + `sns:Publish` no tópico) |
+| Lambda | `enviar-email` (role: `ses:SendEmail`) |
+| Bucket S3 | `padaria-fotos-bruno` (privado) |
+| Usuário IAM | `padaria-dev` (só o Next local, via `.env.local`) |
+| Usuário IAM | `padaria-admin` (admin, usado pelo perfil `padaria` e pelos MCPs) |
+| Perfil AWS CLI | `padaria` |
+| SES (remetente e destinatário) | `bruno88cabral@gmail.com` |
+
+Variáveis de ambiente (`.env.example` é o modelo; `.env.local` nunca é commitado):
+
+| Variável | Usada por |
+|---|---|
+| `AWS_REGION` | Next, Lambdas |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Next, só local (usuário `padaria-dev`) |
+| `DATABASE_URL` | Next, `processar-pedido` (ex. `postgres://user:senha@host:5432/padaria?sslmode=require`) |
+| `S3_BUCKET` | Next |
+| `SQS_QUEUE_URL` | Next |
+| `SNS_TOPIC_ARN` | `processar-pedido` |
+| `SES_FROM` | `enviar-email` |
+
+## Regra de infra
+
+Tudo que couber em SAM vai no `template.yaml` (fila, DLQ, tópico, Lambdas, bucket, assinatura). Ficam fora do template, documentados no README: RDS, usuários IAM, identidade do SES. O MCP pode criar/depurar recursos, mas a mudança volta para o template; recurso criado só pelo MCP é dívida.
+
+## MCPs (planejados; registro feito pelo humano na MYK-980)
+
+Escopo `local` (vale só para este diretório, fica em `~/.claude.json`). Não usar `--scope project` e não criar `.mcp.json` (vazaria o nome do perfil para o git).
+
+```bash
+claude mcp add aws-api -e AWS_REGION=us-east-1 -e AWS_PROFILE=padaria -e READ_OPERATIONS_ONLY=true -- uvx awslabs.aws-api-mcp-server@latest
+claude mcp add aws-serverless -e AWS_REGION=us-east-1 -e AWS_PROFILE=padaria -- uvx awslabs.aws-serverless-mcp-server@latest
+```
+
+- `aws-api`: `READ_OPERATIONS_ONLY=true` até a MYK-970. Para criar recursos: `claude mcp remove aws-api` e adicionar de novo sem a flag. Não relaxar antes.
+- `aws-serverless`: SAM (build/deploy); precisa de `sam` no `PATH`.
+- Opcional: AWS Knowledge MCP para consultar documentação.
+
+## Contratos das rotas
+
+| Rota | Entrada | Saída | Fala com |
+|---|---|---|---|
+| `POST /api/upload-url` | `{ contentType }` | `{ uploadUrl, fotoKey }` | S3 |
+| `POST /api/itens` | `{ nome, descricao, valorCents, fotoKey }` | `201 { item }` | RDS |
+| `GET /api/itens` | | `{ itens: [{ ..., fotoUrl }] }` | RDS, S3 (URL de GET) |
+| `GET /api/itens/[id]` | | `{ item }` | RDS, S3 |
+| `POST /api/checkout` | `{ nome, email, itens: [{ itemId, quantidade }] }` | `202 { pedidoId }` | RDS, SQS |
+| `GET /api/pedidos` | | `{ pedidos: [{ id, clienteNome, status, totalCents, criadoEm }] }` | RDS |
+
+Toda rota de `app/api` declara `export const runtime = "nodejs"` (o SDK da AWS não roda no Edge).
+
+Estrutura: `app/` (páginas `itens`, `itens/novo`, `itens/[id]`, `checkout`, `pedidos` + `api/*`), `lib/` (`db.ts` pool do pg, `s3.ts`, `sqs.ts`, `carrinho.ts` só no browser), `lambdas/` (`processar-pedido/handler.ts`, `enviar-email/handler.ts`, `build.mjs` esbuild -> `dist/*.zip`), `sql/schema.sql`.
+
+## Modelo de dados
+
+```sql
+create table itens (
+  id          uuid primary key default gen_random_uuid(),
+  nome        text not null,
+  descricao   text,
+  valor_cents integer not null check (valor_cents >= 0),
+  foto_key    text,
+  criado_em   timestamptz not null default now()
+);
+
+create table pedidos (
+  id            uuid primary key,            -- gerado pelo Next, chave de idempotência
+  cliente_nome  text not null,
+  cliente_email text not null,
+  status        text not null default 'recebido', -- recebido | confirmado
+  total_cents   integer,
+  criado_em     timestamptz not null default now(),
+  confirmado_em timestamptz
+);
+
+create table pedido_itens (
+  pedido_id   uuid references pedidos(id),
+  item_id     uuid references itens(id),
+  quantidade  integer not null check (quantidade > 0),
+  valor_cents integer not null,                 -- preço congelado no pedido
+  primary key (pedido_id, item_id)
+);
+```
+
+Regras de negócio:
+- Valor em centavos inteiros, nunca float.
+- Preço congelado em `pedido_itens.valor_cents`.
+- Pedido sem itens não finaliza; nome e e-mail obrigatórios, e-mail com formato válido.
+- Idempotência pelo `WHERE status = 'recebido'`; um único e-mail por pedido.
+- O e-mail lista itens, quantidades, total e número do pedido.
+
+## Segurança
+
+- Nenhuma credencial no browser nem no git.
+- O Next usa só `padaria-dev`, via `.env.local` (ignorado pelo git). As chaves do `padaria-dev` nunca entram em `~/.aws`; o perfil `padaria` é do `padaria-admin`.
+- Antes de commitar: `git status` e conferir que nenhum `.env*` além de `.env.example` está staged.
+- Foto: validar tipo (jpeg/png/webp) e tamanho (5 MB) no servidor antes de assinar a URL.
+
+## Comandos
+
+Gerenciador: npm.
+
+| Comando | Uso |
+|---|---|
+| `npm run dev` | Next local |
+| `npm run lint` | ESLint |
+| `npm run build` | Build de produção (deve passar sempre) |
+| `sam build` / `sam deploy --profile padaria` | Lambdas e infra, a partir da MYK-972 |
+
+Regras do Next 16 neste repo:
+- `next.config.ts` NÃO pode habilitar `cacheComponents` (nem `partialPrefetching`): com Cache Components o Next 16 proíbe `export const runtime` (`node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/02-route-segment-config/runtime.md:24`), e toda rota precisa de `runtime = "nodejs"`.
+- Leia `node_modules/next/dist/docs/` antes de usar qualquer API do Next (ver bloco do `AGENTS.md` acima). O `next dev` reescreve o `AGENTS.md`; não editar à mão.
