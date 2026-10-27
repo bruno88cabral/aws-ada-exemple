@@ -195,7 +195,10 @@ describe("handler", () => {
 });
 
 describe("caos (CHAOS_FAIL_RATE)", () => {
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
 
   function deps(aleatorio: () => number) {
     const f = fakeCliente(1);

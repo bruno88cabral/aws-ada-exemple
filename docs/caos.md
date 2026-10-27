@@ -11,7 +11,7 @@ Este roteiro mostra, com a infraestrutura já deployada, o que o SQS faz quando 
 
 ## Preparação
 
-Use o mesmo perfil e região do deploy. Nos comandos abaixo, `<mesmos parâmetros do deploy>` significa repetir o que você passou no `sam deploy` original: `DatabaseUrl` (obrigatório) e, se você os alterou, `BucketName`, `AllowedOrigin` e `SesFrom`. **Todo `sam deploy --parameter-overrides` precisa listar de novo os parâmetros sem default** (hoje, `DatabaseUrl`), senão o deploy falha.
+Use o mesmo perfil e região do deploy. Nos comandos abaixo, `<mesmos parâmetros do deploy>` significa repetir, no `--parameter-overrides`, **todos os parâmetros que você personalizou no deploy original**, com os mesmos valores: `DatabaseUrl` sempre (é `NoEcho`; não conte com o `samconfig.toml` para guardá-la) e, se você os alterou, `BucketName`, `AllowedOrigin` e `SesFrom`. Atenção: mudar o `BucketName` faria o CloudFormation substituir o bucket; mantenha o mesmo valor.
 
 ```bash
 export AWS_PROFILE=padaria AWS_REGION=us-east-1
@@ -112,7 +112,7 @@ O pedido **não é afetado**: o cliente recebe o `202`, o pedido é gravado e a 
 O que acontece com o e-mail, nesta implementação:
 
 1. A `processar-pedido` publica no tópico `pedido-confirmado` **dentro da transação**, antes do COMMIT. Se o próprio `Publish` falhar, a transação sofre ROLLBACK, o pedido continua `recebido` e o SQS reentrega a mensagem (até 3 vezes, depois DLQ). Nesse caso nenhum e-mail se perde.
-2. Publicado o evento, o SNS entrega ao `enviar-email` como invocação assíncrona. Se a Lambda estiver indisponível ou limitada (throttling), o SNS repete a entrega por um tempo; se a função executar e lançar erro (por exemplo, o SES recusando o envio), o próprio serviço Lambda tenta de novo **2 vezes** (3 execuções no total), com espera entre elas.
+2. Publicado o evento, o SNS o entrega ao `enviar-email` como **invocação assíncrona** do Lambda: o serviço Lambda enfileira o evento internamente e o executa depois. Se a função executar e lançar erro (por exemplo, o SES recusando o envio), o Lambda tenta de novo **2 vezes** (3 execuções no total), com espera entre elas. Se a função estiver indisponível ou limitada (throttling) ou houver erro do próprio serviço, o Lambda continua tentando até o evento completar a idade máxima (`MaximumEventAgeInSeconds`, padrão de 6 horas).
 3. Esgotadas as tentativas, o evento é **descartado**: o `enviar-email` do template não tem DLQ nem *on-failure destination*, e o tópico não tem fila no meio. O pedido fica `confirmado` no banco, mas o cliente **não recebe o e-mail**. Também não há reprocessamento automático, porque a mensagem do SQS já foi consumida com sucesso.
 4. Como o e-mail só é publicado quando o `UPDATE` afeta 1 linha, reenviar o `pedidoId` à fila **não** reenvia o e-mail de um pedido já confirmado (cenário 3). Recuperar um e-mail perdido exige ação manual ou uma das melhorias abaixo.
 
