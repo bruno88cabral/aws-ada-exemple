@@ -33,7 +33,7 @@ export type Recurso = { Type: string; Properties?: Record<string, any> }; // esl
 export type Template = {
   AWSTemplateFormatVersion?: string;
   Transform?: string;
-  Parameters: Record<string, { Type: string; Default?: unknown; NoEcho?: boolean }>;
+  Parameters: Record<string, { Type: string; Default?: unknown; NoEcho?: boolean; MinValue?: number; MaxValue?: number }>;
   Resources: Record<string, Recurso>;
   Outputs: Record<string, { Value: unknown; Description?: string }>;
 };

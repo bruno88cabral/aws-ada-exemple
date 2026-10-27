@@ -1,4 +1,5 @@
 import type { SQSBatchItemFailure, SQSBatchResponse, SQSEvent } from "aws-lambda";
+import { lerEnvOpcional } from "@/lib/config";
 import { getPool } from "@/lib/db";
 import { publicarPedidoConfirmado, type PedidoConfirmado } from "@/lib/sns";
 
@@ -13,7 +14,30 @@ export type Cliente = {
 export type Deps = {
   conectar: () => Promise<Cliente>;
   publicar: (pedido: PedidoConfirmado) => Promise<void>;
+  // Fonte de aleatoriedade em [0, 1) para o caos; os testes injetam valores fixos.
+  aleatorio?: () => number;
 };
+
+export class CaosError extends Error {
+  constructor(taxa: number) {
+    super(`caos: falha injetada (CHAOS_FAIL_RATE=${taxa})`);
+    this.name = "CaosError";
+  }
+}
+
+// CHAOS_FAIL_RATE: probabilidade em [0, 1]. Ausente/vazia = 0. Valor inválido
+// (não numérico ou fora de 0..1) é ignorado com aviso: o caos nunca derruba
+// a Lambda por erro de configuração.
+export function taxaDeCaos(): number {
+  const bruto = lerEnvOpcional("CHAOS_FAIL_RATE");
+  if (bruto === undefined) return 0;
+  const taxa = Number(bruto);
+  if (!Number.isFinite(taxa) || taxa < 0 || taxa > 1) {
+    console.warn(`CHAOS_FAIL_RATE inválida (${bruto}); usando 0`);
+    return 0;
+  }
+  return taxa;
+}
 
 // Idempotente: o WHERE status='recebido' só deixa a primeira entrega confirmar.
 export const SQL_CONFIRMAR = `update pedidos
@@ -29,8 +53,10 @@ export const SQL_ITENS = `select i.nome, pi.quantidade, pi.valor_cents
  where pi.pedido_id = $1
  order by i.nome`;
 
-// MYK-976 insere o chaos check aqui, no início desta função.
 export async function processarRegistro(pedidoId: string, deps: Deps): Promise<Resultado> {
+  // Caos: primeira instrução, antes de abrir conexão ou executar qualquer query.
+  const taxa = taxaDeCaos();
+  if (taxa > 0 && (deps.aleatorio ?? Math.random)() < taxa) throw new CaosError(taxa);
   const client = await deps.conectar();
   try {
     await client.query("BEGIN");
@@ -85,7 +111,10 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
       const pedidoId = extrairPedidoId(record.body);
       await processarRegistro(pedidoId, { conectar: () => getPool().connect(), publicar: publicarPedidoConfirmado });
     } catch (err) {
-      console.error(`falha no record ${record.messageId}`, err);
+      console.error(
+        `falha no record ${record.messageId} (ApproximateReceiveCount=${record.attributes?.ApproximateReceiveCount ?? "?"})`,
+        err,
+      );
       batchItemFailures.push({ itemIdentifier: record.messageId });
     }
   }

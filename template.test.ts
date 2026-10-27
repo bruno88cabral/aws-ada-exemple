@@ -167,3 +167,20 @@ describe("template.yaml - tópico e Lambda enviar-email", () => {
     expect(t.Outputs.PedidoConfirmadoTopicArn.Value).toEqual({ Ref: "PedidoConfirmadoTopic" });
   });
 });
+
+describe("template.yaml - caos na processar-pedido", () => {
+  const prm = t.Parameters.ChaosFailRate;
+
+  it("parâmetro ChaosFailRate: número, default 0, limitado a 0..1", () => {
+    expect(prm.Type).toBe("Number");
+    expect(prm.Default).toBe(0);
+    expect(prm.MinValue).toBe(0);
+    expect(prm.MaxValue).toBe(1);
+  });
+
+  it("vira CHAOS_FAIL_RATE só na processar-pedido", () => {
+    const vars = t.Resources.ProcessarPedidoFunction.Properties?.Environment.Variables;
+    expect(vars.CHAOS_FAIL_RATE).toEqual({ Ref: "ChaosFailRate" });
+    expect(t.Resources.EnviarEmailFunction.Properties?.Environment.Variables.CHAOS_FAIL_RATE).toBeUndefined();
+  });
+});

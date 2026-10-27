@@ -15,6 +15,12 @@ Parameters:
     Type: String
     NoEcho: true
     Description: "DATABASE_URL da processar-pedido. Para RDS termine a URL com ?uselibpqcompat=true&sslmode=require"
+  ChaosFailRate:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 1
+    Description: "Probabilidade (0 a 1) da processar-pedido falhar de proposito, para o roteiro de caos (docs/caos.md). Producao: 0"
   SesFrom:
     Type: String
     Default: bruno88cabral@gmail.com
@@ -67,6 +73,7 @@ Resources:
         Variables:
           DATABASE_URL: !Ref DatabaseUrl
           SNS_TOPIC_ARN: !Ref PedidoConfirmadoTopic
+          CHAOS_FAIL_RATE: !Ref ChaosFailRate
       Policies:
         - SQSPollerPolicy:
             QueueName: !GetAtt PedidosQueue.QueueName

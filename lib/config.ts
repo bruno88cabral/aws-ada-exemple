@@ -19,3 +19,9 @@ export function lerEnv(nome: string): string {
   }
   return valor;
 }
+
+// Variável opcional: ausente ou em branco devolve undefined (sem lançar).
+export function lerEnvOpcional(nome: string): string | undefined {
+  const valor = process.env[nome];
+  return valor && valor.trim() !== "" ? valor.trim() : undefined;
+}

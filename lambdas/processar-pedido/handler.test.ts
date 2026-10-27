@@ -1,13 +1,13 @@
 import type { SQSEvent } from "aws-lambda";
 import { mockClient } from "aws-sdk-client-mock";
 import { PublishCommand, SNSClient } from "@aws-sdk/client-sns";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const poolQuery = vi.fn();
 const connect = vi.fn();
 vi.mock("pg", () => ({ Pool: vi.fn(function () { return { query: poolQuery, connect }; }) }));
 
-import { handler, processarRegistro, SQL_CONFIRMAR, type Cliente } from "./handler";
+import { CaosError, handler, processarRegistro, SQL_CONFIRMAR, taxaDeCaos, type Cliente } from "./handler";
 
 const P1 = "7b0d4a4e-2c3b-4f0e-9a52-1a2b3c4d5e6f";
 const P2 = "8c1e5b5f-3d4c-4a1f-8b63-2b3c4d5e6f70";
@@ -191,5 +191,62 @@ describe("handler", () => {
     vi.stubEnv("DATABASE_URL", "");
     const r = await handler(evento(["m1", JSON.stringify({ pedidoId: P1 })]));
     expect(r.batchItemFailures).toEqual([{ itemIdentifier: "m1" }]);
+  });
+});
+
+describe("caos (CHAOS_FAIL_RATE)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  function deps(aleatorio: () => number) {
+    const f = fakeCliente(1);
+    const conectar = vi.fn(async () => f.client);
+    const publicar = vi.fn(async () => {});
+    return { f, conectar, publicar, d: { conectar, publicar, aleatorio } };
+  }
+
+  it("taxa 0, ausente ou vazia: nunca falha, mesmo com sorteio 0", async () => {
+    for (const valor of ["0", "", "   ", undefined]) {
+      vi.stubEnv("CHAOS_FAIL_RATE", valor as string);
+      if (valor === undefined) delete process.env.CHAOS_FAIL_RATE;
+      const x = deps(() => 0);
+      await expect(processarRegistro(P1, x.d)).resolves.toEqual({ confirmado: true });
+    }
+  });
+
+  it("taxa 1: sempre falha, mesmo com o maior sorteio possível", async () => {
+    vi.stubEnv("CHAOS_FAIL_RATE", "1");
+    const x = deps(() => 0.999999);
+    await expect(processarRegistro(P1, x.d)).rejects.toBeInstanceOf(CaosError);
+  });
+
+  it("o erro acontece antes de conectar e de qualquer query", async () => {
+    vi.stubEnv("CHAOS_FAIL_RATE", "1");
+    const x = deps(() => 0);
+    await expect(processarRegistro(P1, x.d)).rejects.toThrow(/caos/);
+    expect(x.conectar).not.toHaveBeenCalled();
+    expect(x.f.query).not.toHaveBeenCalled();
+    expect(x.publicar).not.toHaveBeenCalled();
+  });
+
+  it("taxa 0.5: sorteio abaixo falha, igual ou acima passa", async () => {
+    vi.stubEnv("CHAOS_FAIL_RATE", "0.5");
+    await expect(processarRegistro(P1, deps(() => 0.49).d)).rejects.toBeInstanceOf(CaosError);
+    await expect(processarRegistro(P1, deps(() => 0.5).d)).resolves.toEqual({ confirmado: true });
+  });
+
+  it("valor inválido ou fora de 0..1: avisa e usa 0", () => {
+    const aviso = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const v of ["abc", "-0.1", "1.5", "NaN"]) {
+      vi.stubEnv("CHAOS_FAIL_RATE", v);
+      expect(taxaDeCaos()).toBe(0);
+    }
+    expect(aviso).toHaveBeenCalledTimes(4);
+  });
+
+  it("no handler, taxa 1 manda todos os records para batchItemFailures sem tocar no banco", async () => {
+    vi.stubEnv("CHAOS_FAIL_RATE", "1");
+    const r = await handler(evento(["m1", JSON.stringify({ pedidoId: P1 })], ["m2", JSON.stringify({ pedidoId: P2 })]));
+    expect(r.batchItemFailures).toEqual([{ itemIdentifier: "m1" }, { itemIdentifier: "m2" }]);
+    expect(connect).not.toHaveBeenCalled();
   });
 });
