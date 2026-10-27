@@ -1,4 +1,5 @@
 import { getPool } from "@/lib/db";
+import { urlParaLeituraOuNull } from "@/lib/s3";
 import type { NovoItem } from "@/lib/schemas";
 
 // Forma JSON do item em todas as respostas (camelCase).
@@ -23,10 +24,10 @@ type Linha = {
 
 const COLUNAS = "id, nome, descricao, valor_cents, foto_key, criado_em";
 
-// MYK-972: troque o corpo para assinar a URL de GET no S3. Único ponto.
+// Único ponto que assina a URL de GET da foto. null sem foto ou sem S3 configurado.
 export async function urlDaFoto(fotoKey: string | null): Promise<string | null> {
-  void fotoKey;
-  return null;
+  if (!fotoKey) return null;
+  return urlParaLeituraOuNull(fotoKey);
 }
 
 async function paraItem(l: Linha): Promise<Item> {

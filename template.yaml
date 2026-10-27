@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Padaria na AWS - infraestrutura (SAM)
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: padaria-fotos-bruno
+    Description: Nome do bucket das fotos (precisa ser unico na AWS; troque se ja estiver em uso)
+  AllowedOrigin:
+    Type: String
+    Default: http://localhost:3000
+    Description: Origem do Next liberada no CORS do bucket
+
+Resources:
+  FotosBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods:
+              - PUT
+              - GET
+            AllowedOrigins:
+              - !Ref AllowedOrigin
+            AllowedHeaders:
+              - "*"
+            MaxAge: 3000
+
+Outputs:
+  BucketName:
+    Description: Valor de S3_BUCKET no .env.local
+    Value: !Ref FotosBucket

@@ -138,7 +138,7 @@ Gerenciador: npm.
 | `npm run lint` | ESLint |
 | `npm run build` | Build de produção (deve passar sempre, inclusive sem `.env.local`) |
 | `npm test` | Vitest (`vitest run`), com mocks; sem AWS nem banco reais. Testes ficam ao lado do código (`lib/*.test.ts`); alias `@/*` configurado em `vitest.config.mts` |
-| `sam build` / `sam deploy --profile padaria` | Lambdas e infra, a partir da MYK-972 |
+| `sam validate --lint` / `sam build` / `sam deploy --profile padaria` | Passos do aluno (precisam do `sam` e da conta AWS); nunca rodados no desenvolvimento do repo. O `npm test` só faz parse do `template.yaml` (`template.test.ts`, helper `infra/template.ts` com as tags `!Ref`/`!GetAtt`/`!Sub`...) |
 
 Config ausente (clients lazy):
 - Nenhum client (pg, S3, SQS, SNS, SES) é criado no import; `npm run build` passa sem `.env.local`.

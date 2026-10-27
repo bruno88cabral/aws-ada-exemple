@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TAMANHO_MAX_FOTO, TIPOS_FOTO, type TipoFoto } from "@/lib/s3";
 import { reaisParaCentavos, ValorInvalidoError } from "@/lib/dinheiro";
 
 // Entrada de POST /api/itens. O valor vem em `valorCents` (inteiro) ou em
@@ -37,3 +38,15 @@ export const criarItemSchema = z
 export type NovoItem = z.output<typeof criarItemSchema>;
 
 export const idSchema = z.uuid();
+
+// Entrada de POST /api/upload-url.
+export const uploadUrlSchema = z.object({
+  contentType: z.enum(Object.keys(TIPOS_FOTO) as [TipoFoto], {
+    error: "tipo não permitido (use image/jpeg, image/png ou image/webp)",
+  }),
+  tamanho: z
+    .number("tamanho obrigatório")
+    .int()
+    .min(1, "arquivo vazio")
+    .max(TAMANHO_MAX_FOTO, "foto acima de 5 MB"),
+});
