@@ -107,6 +107,31 @@ describe("POST /api/checkout", () => {
     expect(release).toHaveBeenCalledTimes(1);
   });
 
+  it("400 com ROLLBACK quando o total estoura o inteiro do banco", async () => {
+    precos([{ id: A, valor_cents: 2_000_000_000 }]);
+    const res = await POST(post({ ...valido, itens: [{ itemId: A, quantidade: 2 }] }));
+    expect(res.status).toBe(400);
+    expect(sqls()).toEqual(["BEGIN", "SELECT", "ROLLBACK"]);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("normaliza itemId em maiúsculas e soma duplicados com caixa mista", async () => {
+    precos([{ id: A, valor_cents: 100 }]);
+    const res = await POST(
+      post({
+        ...valido,
+        itens: [
+          { itemId: A.toUpperCase(), quantidade: 1 },
+          { itemId: A, quantidade: 2 },
+        ],
+      }),
+    );
+    expect(res.status).toBe(202);
+    expect(clientQuery.mock.calls[1][1]).toEqual([[A]]);
+    const inserts = clientQuery.mock.calls.filter((c) => String(c[0]).includes("insert into pedido_itens"));
+    expect(inserts.map((c) => c[1].slice(1))).toEqual([[A, 3, 100]]);
+  });
+
   it.each([
     ["carrinho vazio", { ...valido, itens: [] }],
     ["sem itens", { nome: "Ana", email: "ana@ex.com" }],

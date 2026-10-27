@@ -46,7 +46,8 @@ export const checkoutSchema = z.object({
   itens: z
     .array(
       z.object({
-        itemId: z.uuid("itemId inválido"),
+        // Postgres devolve uuid em minúsculas: normaliza para casar com o Map de preços.
+        itemId: z.uuid("itemId inválido").transform((s) => s.toLowerCase()),
         quantidade: z
           .number("quantidade obrigatória")
           .int("quantidade deve ser inteira")

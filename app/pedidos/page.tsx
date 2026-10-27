@@ -28,9 +28,12 @@ export default function PedidosPage() {
 
   useEffect(() => {
     let ativo = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const controle = new AbortController();
+    // Próxima busca só é agendada depois da anterior terminar: sem respostas fora de ordem.
     async function buscar() {
       try {
-        const res = await fetch("/api/pedidos", { cache: "no-store" });
+        const res = await fetch("/api/pedidos", { cache: "no-store", signal: controle.signal });
         const dados = await res.json().catch(() => ({}));
         if (!ativo) return;
         if (res.status === 503) {
@@ -45,12 +48,13 @@ export default function PedidosPage() {
       } catch {
         if (ativo) setErro("falha de rede");
       }
+      if (ativo) timer = setTimeout(buscar, INTERVALO_MS);
     }
     buscar();
-    const timer = setInterval(buscar, INTERVALO_MS);
     return () => {
       ativo = false;
-      clearInterval(timer);
+      clearTimeout(timer);
+      controle.abort();
     };
   }, []);
 
