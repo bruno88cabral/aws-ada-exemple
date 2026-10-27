@@ -39,6 +39,26 @@ export type NovoItem = z.output<typeof criarItemSchema>;
 
 export const idSchema = z.uuid();
 
+// Entrada de POST /api/checkout. Preço nunca vem do client: só itemId e quantidade.
+export const checkoutSchema = z.object({
+  nome: z.string().trim().min(1, "nome obrigatório").max(120),
+  email: z.string().trim().max(254).pipe(z.email("e-mail inválido")),
+  itens: z
+    .array(
+      z.object({
+        itemId: z.uuid("itemId inválido"),
+        quantidade: z
+          .number("quantidade obrigatória")
+          .int("quantidade deve ser inteira")
+          .min(1, "quantidade mínima 1")
+          .max(1000, "quantidade máxima 1000"),
+      }),
+    )
+    .min(1, "carrinho vazio"),
+});
+
+export type NovoPedido = z.output<typeof checkoutSchema>;
+
 // Entrada de POST /api/upload-url.
 export const uploadUrlSchema = z.object({
   contentType: z.enum(Object.keys(TIPOS_FOTO) as [TipoFoto], {
