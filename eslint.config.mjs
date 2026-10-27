@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Build outputs da AWS (gitignored): sam build e lambdas/build.mjs.
+    ".aws-sam/**",
+    "dist/**",
   ]),
 ]);
 
