@@ -181,7 +181,7 @@ O mesmo documento traz o **roteiro de caos**: com o parâmetro `ChaosFailRate` v
 
 O RDS cobra por hora enquanto existir (`db.t4g.micro`); S3, SQS, Lambda, SNS e SES custam centavos neste volume. **Pare o RDS quando não estiver usando** (a AWS religa um RDS parado após 7 dias). Ao terminar, apague tudo:
 
-1. **RDS:** console > Databases > Actions > Delete (sem snapshot final). Apague também o Security Group criado para ele.
+1. **RDS:** console > Databases > Actions > Delete. **Sem snapshot final** e desmarcando "retain automated backups"; se você criou snapshots manuais, apague-os em RDS > Snapshots (snapshots e backups retidos continuam cobrando). Apague também o Security Group criado para ele.
 2. **Bucket, antes do stack:** o bucket não tem política de retenção e o CloudFormation não apaga bucket com objetos; se ele estiver cheio, o stack termina em `DELETE_FAILED`. Esvazie primeiro:
 
    ```bash
@@ -196,9 +196,8 @@ O RDS cobra por hora enquanto existir (`db.t4g.micro`); S3, SQS, Lambda, SNS e S
 
    Só se o bucket ainda existir depois disso: `aws s3 rb s3://SEU-BUCKET --profile padaria`.
 4. **Restos do deploy:**
-   - O `sam deploy --guided` criou o stack `aws-sam-cli-managed-default` com um bucket de artefatos. Esvazie esse bucket (nome em `aws cloudformation describe-stack-resources --stack-name aws-sam-cli-managed-default --profile padaria`) e apague o stack: `aws cloudformation delete-stack --stack-name aws-sam-cli-managed-default --profile padaria`.
+   - O `sam deploy --guided` criou o stack `aws-sam-cli-managed-default` com um bucket de artefatos. Esse bucket tem **versionamento ligado**: `aws s3 rm --recursive` deixa versões e delete markers para trás e o stack termina em `DELETE_FAILED`. Esvazie **todas as versões** pelo console do S3 (ache o bucket pelo nome em `aws cloudformation describe-stack-resources --stack-name aws-sam-cli-managed-default --profile padaria`, selecione-o e use o botão **Empty**, que remove todas as versões). Pela CLI seria preciso `aws s3api list-object-versions` seguido de `aws s3api delete-objects` para versões e delete markers. Depois apague o stack: `aws cloudformation delete-stack --stack-name aws-sam-cli-managed-default --profile padaria`.
    - Os log groups `/aws/lambda/processar-pedido` e `/aws/lambda/enviar-email` sobrevivem ao stack: `aws logs delete-log-group --log-group-name /aws/lambda/processar-pedido --profile padaria` (e o mesmo para `enviar-email`).
-   - RDS: apague **sem snapshot final** e desmarque "retain automated backups"; se criou snapshots manuais, apague-os em RDS > Snapshots (snapshots e backups continuam cobrando).
 5. **SES:** remova a identidade verificada, se quiser.
 6. **IAM:** apague as access keys do `padaria-dev` e o próprio usuário; por último, as chaves e o usuário `padaria-admin` (e o perfil `padaria` em `~/.aws`).
 7. Apague o seu `.env.local`.
