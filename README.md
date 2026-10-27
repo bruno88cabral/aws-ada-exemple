@@ -56,10 +56,10 @@ O RDS não está no template. Crie pelo console (RDS > Create database):
 - Engine **PostgreSQL 16**, template **Free tier** ou **Dev/Test**, classe **`db.t4g.micro`**, 20 GB.
 - Usuário mestre e senha à sua escolha (anote).
 - **Public access: Yes**.
-- Security Group com uma regra de entrada: **PostgreSQL, porta 5432, origem = o seu IP** ("My IP"). O Next local precisa alcançar o banco.
+- Security Group com uma regra de entrada: **PostgreSQL, porta 5432, origem `0.0.0.0/0`** (explicação abaixo).
 - Em Additional configuration, "Initial database name" = `padaria` (ou rode `create database padaria;` depois).
 
-As Lambdas ficam **fora de VPC** e também acessam o RDS pelo endpoint público, e elas não têm IP fixo. Por isso a `processar-pedido` só consegue conectar se o Security Group aceitar a porta 5432 de fora do seu IP. Nesta atividade libere a 5432 para `0.0.0.0/0` **com usuário e senha fortes** e remova a regra no teardown (a alternativa mais segura, Lambdas em VPC, exigiria NAT ou VPC endpoints e custaria mais; está fora do escopo).
+**Por que `0.0.0.0/0`?** As Lambdas ficam **fora de VPC** e acessam o RDS pelo endpoint público, e uma Lambda fora de VPC não tem IP fixo, então não dá para liberar só o IP dela. O banco fica exposto à internet, protegido apenas por **senha forte + TLS** (`sslmode=require`): use uma senha longa e aleatória. A alternativa seria colocar as Lambdas na VPC, mas aí elas perdem a saída para a internet e precisam de NAT Gateway ou VPC endpoints para alcançar SNS e SES, o que custa dinheiro por hora. Como isso é um ambiente de estudo, aceitamos o trade-off: **apague o RDS assim que terminar** (seção 9).
 
 Quando o status for `Available`, copie o **Endpoint** e rode os scripts:
 
@@ -69,7 +69,7 @@ psql -h SEU-ENDPOINT -U SEU-USUARIO -d padaria -f sql/schema.sql
 psql -h SEU-ENDPOINT -U SEU-USUARIO -d padaria -f sql/seed.sql
 ```
 
-`sql/schema.sql` pode ser repetido sem problema. **`sql/seed.sql` roda uma vez só**: rodar de novo duplica os itens de exemplo.
+O `psql` com `PGSSLMODE=require` (ou `sslmode=require` na URL) funciona normalmente; o `uselibpqcompat` abaixo só importa para o driver `pg` do Node. `sql/schema.sql` pode ser repetido sem problema. **`sql/seed.sql` roda uma vez só**: rodar de novo duplica os itens de exemplo.
 
 Monte a `DATABASE_URL`:
 
@@ -103,13 +103,17 @@ Ordem dos comandos:
 
 ```bash
 npm install
-sam validate --lint --profile padaria
 npm run build:lambdas
-sam deploy --guided --profile padaria
+rm -rf .aws-sam
+sam validate --lint --profile padaria
+sam deploy --guided --profile padaria --template-file template.yaml
 ```
 
+Nos deploys seguintes (mudou parâmetro ou código de Lambda), repita a mesma sequência sem o `--guided`: `npm run build:lambdas`, `rm -rf .aws-sam`, `sam deploy --profile padaria --template-file template.yaml`.
+
 - **`npm run build:lambdas` vem antes do deploy.** O `template.yaml` aponta para `dist/processar-pedido/` e `dist/enviar-email/`, que o esbuild gera (`dist/` não vai para o git). Sem esse passo o deploy falha por pasta inexistente.
-- **Não precisa de `sam build`.** O esbuild já entrega o JavaScript pronto (um `index.mjs` por Lambda, com o `pg` embutido e o `@aws-sdk/*` vindo do runtime), sem `package.json` para o SAM instalar. O `sam deploy` empacota e envia direto as pastas do `CodeUri`; `sam build` só copiaria essas pastas para `.aws-sam/`. Se mudar o código das Lambdas, rode `npm run build:lambdas` e `sam deploy` de novo.
+- **Rode `npm run build:lambdas` antes de todo redeploy**, sempre que o código das Lambdas mudar: o `sam deploy` envia o que estiver em `dist/` naquele momento.
+- **Não use `sam build`.** O esbuild já entrega o JavaScript pronto (um `index.mjs` por Lambda, com o `pg` embutido e o `@aws-sdk/*` vindo do runtime), sem `package.json` para o SAM instalar. O `sam build` criaria `.aws-sam/build/template.yaml`, e o `sam deploy` usa esse arquivo por padrão quando ele existe, enviando uma cópia antiga das Lambdas mesmo depois de um novo `build:lambdas`. Por isso o `rm -rf .aws-sam` e o `--template-file template.yaml` na sequência acima. O MCP `aws-serverless` (seção 10) pode sugerir `sam build`: não siga essa sugestão.
 - No `--guided`: stack name (ex.: `padaria`), região `us-east-1`, os parâmetros da tabela, aceite a criação de roles IAM (`CAPABILITY_IAM`) e salve a configuração. A `DatabaseUrl` é `NoEcho`: não conte com o `samconfig.toml` para guardá-la; informe de novo (ou use `--parameter-overrides`) a cada deploy. `SesFrom` não tem valor padrão, então o SAM sempre pergunta.
 - Se o deploy disser que o bucket já existe, troque o `BucketName`.
 
@@ -159,7 +163,7 @@ Comportamentos conhecidos:
 ## 7. Pegadinhas
 
 - **Upload da foto falha no browser (CORS ou 403).** O `AllowedOrigin` precisa ser exatamente a origem em que você abre o app (`http://localhost:3000`, com porta, sem barra no final). O `Content-Type` do `PUT` deve ser o mesmo `contentType` pedido ao assinar a URL. O `S3_BUCKET` e a policy do `padaria-dev` precisam apontar para o mesmo bucket.
-- **`ETIMEDOUT` ou conexão recusada no banco.** O Security Group não tem o seu IP (ele muda de rede para rede) ou o "Public access" está desligado. Para as Lambdas, veja a seção 3.
+- **`ETIMEDOUT` ou conexão recusada no banco.** O Security Group não tem a regra de entrada 5432 para `0.0.0.0/0` ou o "Public access" está desligado (seção 3).
 - **`self-signed certificate in certificate chain`.** A `DATABASE_URL` está sem `uselibpqcompat=true&sslmode=require`.
 - **Pedido fica `recebido`.** Olhe os logs: `aws logs tail /aws/lambda/processar-pedido --follow --profile padaria`. Causas comuns: Lambda sem alcançar o RDS, `DatabaseUrl` errada no deploy, mensagem já na DLQ.
 - **E-mail não chega.** SES em sandbox: remetente e destinatário precisam ser identidades verificadas em `us-east-1`. Veja os logs da `enviar-email` (`MessageRejected`) e o spam.
@@ -177,23 +181,27 @@ O mesmo documento traz o **roteiro de caos**: com o parâmetro `ChaosFailRate` v
 
 O RDS cobra por hora enquanto existir (`db.t4g.micro`); S3, SQS, Lambda, SNS e SES custam centavos neste volume. **Pare o RDS quando não estiver usando** (a AWS religa um RDS parado após 7 dias). Ao terminar, apague tudo:
 
-1. **RDS:** console > Databases > Actions > Delete (desmarque o snapshot final se não quiser guardá-lo). Apague também o Security Group criado para ele.
-2. **Stack:**
+1. **RDS:** console > Databases > Actions > Delete (sem snapshot final). Apague também o Security Group criado para ele.
+2. **Bucket, antes do stack:** o bucket não tem política de retenção e o CloudFormation não apaga bucket com objetos; se ele estiver cheio, o stack termina em `DELETE_FAILED`. Esvazie primeiro:
+
+   ```bash
+   aws s3 rm s3://SEU-BUCKET --recursive --profile padaria
+   ```
+
+3. **Stack:**
 
    ```bash
    sam delete --stack-name padaria --profile padaria
    ```
 
-   O CloudFormation não apaga bucket com objetos. Se o `sam delete` falhar nele, esvazie e apague à mão e rode de novo:
-
-   ```bash
-   aws s3 rm s3://SEU-BUCKET --recursive --profile padaria
-   aws s3 rb s3://SEU-BUCKET --profile padaria
-   ```
-
-3. **SES:** remova a identidade verificada, se quiser.
-4. **IAM:** apague as access keys do `padaria-dev` e o próprio usuário; por último, as chaves e o usuário `padaria-admin` (e o perfil `padaria` em `~/.aws`).
-5. Apague o seu `.env.local`.
+   Só se o bucket ainda existir depois disso: `aws s3 rb s3://SEU-BUCKET --profile padaria`.
+4. **Restos do deploy:**
+   - O `sam deploy --guided` criou o stack `aws-sam-cli-managed-default` com um bucket de artefatos. Esvazie esse bucket (nome em `aws cloudformation describe-stack-resources --stack-name aws-sam-cli-managed-default --profile padaria`) e apague o stack: `aws cloudformation delete-stack --stack-name aws-sam-cli-managed-default --profile padaria`.
+   - Os log groups `/aws/lambda/processar-pedido` e `/aws/lambda/enviar-email` sobrevivem ao stack: `aws logs delete-log-group --log-group-name /aws/lambda/processar-pedido --profile padaria` (e o mesmo para `enviar-email`).
+   - RDS: apague **sem snapshot final** e desmarque "retain automated backups"; se criou snapshots manuais, apague-os em RDS > Snapshots (snapshots e backups continuam cobrando).
+5. **SES:** remova a identidade verificada, se quiser.
+6. **IAM:** apague as access keys do `padaria-dev` e o próprio usuário; por último, as chaves e o usuário `padaria-admin` (e o perfil `padaria` em `~/.aws`).
+7. Apague o seu `.env.local`.
 
 ## 10. Opcional: MCPs da AWS no Claude Code
 

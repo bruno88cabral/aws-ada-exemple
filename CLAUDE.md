@@ -19,7 +19,7 @@ Decisões fechadas (não rediscutir):
 - Região `us-east-1`; Lambdas `nodejs22.x`.
 - Carrinho no browser (localStorage); credenciais do banco em variáveis de ambiente (Secrets Manager é desafio extra).
 - Next roda local; deploy na Vercel é opcional.
-- RDS com endpoint público protegido por Security Group (5432 só para o IP local).
+- RDS com endpoint público, Security Group com 5432 aberto a `0.0.0.0/0` (decisão fechada: as Lambdas ficam fora da VPC e não têm IP fixo), protegido por senha forte + TLS (`sslmode=require`). Alternativa (Lambdas na VPC) exigiria NAT ou VPC endpoints para SNS/SES: custo. Apagar o RDS ao terminar.
 - Lambdas fora de VPC. Nada de NAT Gateway, VPC Endpoint ou ElastiCache.
 - SES em sandbox: remetente e destinatário são identidades verificadas (o mais simples: o mesmo e-mail). O remetente é o parâmetro `SesFrom`, sem valor padrão.
 
@@ -73,7 +73,7 @@ claude mcp add aws-serverless -e AWS_REGION=us-east-1 -e AWS_PROFILE=padaria -- 
 
 | Rota | Entrada | Saída | Fala com |
 |---|---|---|---|
-| `POST /api/upload-url` | `{ contentType }` | `{ uploadUrl, fotoKey }` | S3 |
+| `POST /api/upload-url` | `{ contentType, tamanho }` | `{ uploadUrl, fotoKey }` | S3 |
 | `POST /api/itens` | `{ nome, descricao, valorCents, fotoKey }` | `201 { item }` | RDS |
 | `GET /api/itens` | | `{ itens: [{ ..., fotoUrl }] }` | RDS, S3 (URL de GET) |
 | `GET /api/itens/[id]` | | `{ item }` | RDS, S3 |
@@ -140,7 +140,7 @@ Gerenciador: npm.
 | `npm run build` | Build de produção (deve passar sempre, inclusive sem `.env.local`) |
 | `npm test` | Vitest (`vitest run`), com mocks; sem AWS nem banco reais. Testes ficam ao lado do código (`lib/*.test.ts`); alias `@/*` configurado em `vitest.config.mts` |
 | `npm run build:lambdas` | esbuild das duas Lambdas para `dist/`; rodar antes do `sam deploy` |
-| `sam validate --lint` / `sam deploy --guided --profile padaria` | Passos do aluno (precisam do `sam` e da conta AWS); nunca rodados no desenvolvimento do repo. Sem `sam build`: o `dist/` já é JS pronto. O `npm test` só faz parse do `template.yaml` (`template.test.ts`, helper `infra/template.ts` com as tags `!Ref`/`!GetAtt`/`!Sub`...) |
+| `rm -rf .aws-sam` / `sam validate --lint` / `sam deploy --guided --profile padaria --template-file template.yaml` | Passos do aluno (precisam do `sam` e da conta AWS); nunca rodados no desenvolvimento do repo. Nunca `sam build`: o `dist/` já é JS pronto e um `.aws-sam/build/template.yaml` antigo faria o deploy enviar código velho. O `npm test` só faz parse do `template.yaml` (`template.test.ts`, helper `infra/template.ts` com as tags `!Ref`/`!GetAtt`/`!Sub`...) |
 
 Config ausente (clients lazy):
 - Nenhum client (pg, S3, SQS, SNS, SES) é criado no import; `npm run build` passa sem `.env.local`.
