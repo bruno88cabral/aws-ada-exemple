@@ -23,7 +23,6 @@ Parameters:
     Description: "Probabilidade (0 a 1) da processar-pedido falhar de proposito, para o roteiro de caos (docs/caos.md). Producao: 0"
   SesFrom:
     Type: String
-    Default: bruno88cabral@gmail.com
     Description: Remetente do e-mail (identidade verificada no SES; em sandbox, igual ao destinatario)
 
 Resources:

@@ -21,7 +21,7 @@ Decisões fechadas (não rediscutir):
 - Next roda local; deploy na Vercel é opcional.
 - RDS com endpoint público protegido por Security Group (5432 só para o IP local).
 - Lambdas fora de VPC. Nada de NAT Gateway, VPC Endpoint ou ElastiCache.
-- SES em sandbox: mesmo e-mail remetente e destinatário (`bruno88cabral@gmail.com`).
+- SES em sandbox: remetente e destinatário são identidades verificadas (o mais simples: o mesmo e-mail). O remetente é o parâmetro `SesFrom`, sem valor padrão.
 
 ## Nomes dos recursos
 
@@ -31,13 +31,13 @@ Decisões fechadas (não rediscutir):
 | Fila SQS | `pedidos` |
 | DLQ | `pedidos-dlq` (`maxReceiveCount: 3`, visibility timeout 30 s) |
 | Tópico SNS | `pedido-confirmado` |
-| Lambda | `processar-pedido` (roles: `AWSLambdaSQSQueueExecutionRole` + `sns:Publish` no tópico) |
+| Lambda | `processar-pedido` (policies SAM: `SQSPollerPolicy` na fila + `SNSPublishMessagePolicy` no tópico) |
 | Lambda | `enviar-email` (role: `ses:SendEmail`) |
-| Bucket S3 | `padaria-fotos-bruno` (privado) |
+| Bucket S3 | parâmetro `BucketName` (padrão `padaria-fotos-bruno`; os alunos usam um nome único), privado |
 | Usuário IAM | `padaria-dev` (só o Next local, via `.env.local`) |
 | Usuário IAM | `padaria-admin` (admin, usado pelo perfil `padaria` e pelos MCPs) |
 | Perfil AWS CLI | `padaria` |
-| SES (remetente e destinatário) | `bruno88cabral@gmail.com` |
+| SES (remetente) | parâmetro `SesFrom` (identidade verificada de cada aluno) |
 
 Variáveis de ambiente (`.env.example` é o modelo; `.env.local` nunca é commitado):
 
@@ -45,17 +45,18 @@ Variáveis de ambiente (`.env.example` é o modelo; `.env.local` nunca é commit
 |---|---|
 | `AWS_REGION` | Next, Lambdas |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Next, só local (usuário `padaria-dev`) |
-| `DATABASE_URL` | Next, `processar-pedido` (ex. `postgres://user:senha@host:5432/padaria?sslmode=require`) |
-| `S3_BUCKET` | Next |
-| `SQS_QUEUE_URL` | Next |
-| `SNS_TOPIC_ARN` | `processar-pedido` |
-| `SES_FROM` | `enviar-email` |
+| `DATABASE_URL` | Next, `processar-pedido` (RDS: `postgres://user:senha@host:5432/padaria?uselibpqcompat=true&sslmode=require`; com o `pg` instalado o `sslmode=require` puro vira verify-full e falha contra o CA da RDS) |
+| `S3_BUCKET` | Next (Output `BucketName`) |
+| `SQS_QUEUE_URL` | Next (Output `PedidosQueueUrl`) |
+| `SNS_TOPIC_ARN` | `processar-pedido`; vem do template, não entra no `.env.local` |
+| `SES_FROM` | `enviar-email`; vem do parâmetro `SesFrom`, não entra no `.env.local` |
+| `CHAOS_FAIL_RATE` | `processar-pedido` (opcional, 0 a 1; parâmetro `ChaosFailRate`, ver `docs/caos.md`) |
 
 ## Regra de infra
 
-Tudo que couber em SAM vai no `template.yaml` (fila, DLQ, tópico, Lambdas, bucket, assinatura). Ficam fora do template, documentados no README: RDS, usuários IAM, identidade do SES. O MCP pode criar/depurar recursos, mas a mudança volta para o template; recurso criado só pelo MCP é dívida.
+Tudo que couber em SAM vai no `template.yaml` (fila, DLQ, tópico, Lambdas, bucket, assinatura). Ficam fora do template, documentados no README: RDS, usuários IAM, identidade do SES. Parâmetros do template: `BucketName`, `AllowedOrigin`, `DatabaseUrl` (NoEcho), `SesFrom`, `ChaosFailRate`. Outputs: `BucketName`, `PedidosQueueUrl`, `PedidoConfirmadoTopicArn`. O MCP pode criar/depurar recursos, mas a mudança volta para o template; recurso criado só pelo MCP é dívida.
 
-## MCPs (planejados; registro feito pelo humano na MYK-980)
+## MCPs (opcionais; cada pessoa registra os seus, ver README seção 10)
 
 Escopo `local` (vale só para este diretório, fica em `~/.claude.json`). Não usar `--scope project` e não criar `.mcp.json` (vazaria o nome do perfil para o git).
 
@@ -64,7 +65,7 @@ claude mcp add aws-api -e AWS_REGION=us-east-1 -e AWS_PROFILE=padaria -e READ_OP
 claude mcp add aws-serverless -e AWS_REGION=us-east-1 -e AWS_PROFILE=padaria -- uvx awslabs.aws-serverless-mcp-server@latest
 ```
 
-- `aws-api`: `READ_OPERATIONS_ONLY=true` até a MYK-970. Para criar recursos: `claude mcp remove aws-api` e adicionar de novo sem a flag. Não relaxar antes.
+- `aws-api`: `READ_OPERATIONS_ONLY=true` por padrão. Para criar recursos: `claude mcp remove aws-api` e adicionar de novo sem a flag.
 - `aws-serverless`: SAM (build/deploy); precisa de `sam` no `PATH`.
 - Opcional: AWS Knowledge MCP para consultar documentação.
 
@@ -81,7 +82,7 @@ claude mcp add aws-serverless -e AWS_REGION=us-east-1 -e AWS_PROFILE=padaria -- 
 
 Toda rota de `app/api` declara `export const runtime = "nodejs"` (o SDK da AWS não roda no Edge).
 
-Estrutura: `app/` (páginas `itens`, `itens/novo`, `itens/[id]`, `checkout`, `pedidos` + `api/*`), `lib/` (`db.ts` pool do pg, `itens.ts` queries de itens + `urlDaFoto` (ponto único da foto), `schemas.ts` zod, `dinheiro.ts` centavos<->reais, `s3.ts`, `sqs.ts`, `carrinho.ts` só no browser), `lambdas/` (`processar-pedido/handler.ts`, `enviar-email/handler.ts`, `build.mjs` esbuild -> `dist/*.zip`), `sql/schema.sql`.
+Estrutura: `app/` (páginas `itens`, `itens/novo`, `itens/[id]`, `checkout`, `pedidos` + `api/*`), `lib/` (`db.ts` pool do pg, `itens.ts` queries de itens + `urlDaFoto` (ponto único da foto), `schemas.ts` zod, `dinheiro.ts` centavos<->reais, `s3.ts`, `sqs.ts`, `carrinho.ts` só no browser), `lib/config.ts` (`lerEnv`, `lerEnvOpcional`), `lib/http.ts`, `lib/pedidos.ts`, `lib/sqs.ts`, `lib/sns.ts`, `lib/ses.ts`, `lambdas/` (`processar-pedido/handler.ts`, `enviar-email/handler.ts`, `build.mjs` esbuild -> `dist/<nome>/index.mjs`, o `CodeUri` do template; `dist/` é ignorado pelo controle de versão), `sql/` (`schema.sql` idempotente, `seed.sql` rodar uma vez), `template.yaml` (SAM) + `template.test.ts` + `infra/template.ts` (parse para os testes), `docs/caos.md` (roteiro de caos e resposta de resiliência), `README.md` (passo a passo dos alunos).
 
 ## Modelo de dados
 
@@ -138,7 +139,8 @@ Gerenciador: npm.
 | `npm run lint` | ESLint |
 | `npm run build` | Build de produção (deve passar sempre, inclusive sem `.env.local`) |
 | `npm test` | Vitest (`vitest run`), com mocks; sem AWS nem banco reais. Testes ficam ao lado do código (`lib/*.test.ts`); alias `@/*` configurado em `vitest.config.mts` |
-| `sam validate --lint` / `sam build` / `sam deploy --profile padaria` | Passos do aluno (precisam do `sam` e da conta AWS); nunca rodados no desenvolvimento do repo. O `npm test` só faz parse do `template.yaml` (`template.test.ts`, helper `infra/template.ts` com as tags `!Ref`/`!GetAtt`/`!Sub`...) |
+| `npm run build:lambdas` | esbuild das duas Lambdas para `dist/`; rodar antes do `sam deploy` |
+| `sam validate --lint` / `sam deploy --guided --profile padaria` | Passos do aluno (precisam do `sam` e da conta AWS); nunca rodados no desenvolvimento do repo. Sem `sam build`: o `dist/` já é JS pronto. O `npm test` só faz parse do `template.yaml` (`template.test.ts`, helper `infra/template.ts` com as tags `!Ref`/`!GetAtt`/`!Sub`...) |
 
 Config ausente (clients lazy):
 - Nenhum client (pg, S3, SQS, SNS, SES) é criado no import; `npm run build` passa sem `.env.local`.

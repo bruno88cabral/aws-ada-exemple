@@ -154,7 +154,7 @@ describe("template.yaml - tópico e Lambda enviar-email", () => {
 
   it("SES_FROM vem de parâmetro", () => {
     expect(p.Environment.Variables.SES_FROM).toEqual({ Ref: "SesFrom" });
-    expect(t.Parameters.SesFrom.Default).toBe("bruno88cabral@gmail.com");
+    expect(t.Parameters.SesFrom.Default).toBeUndefined();
   });
 
   it("policy ses:SendEmail e nada além disso", () => {
