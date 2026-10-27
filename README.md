@@ -1,6 +1,6 @@
 # Padaria na AWS
 
-Projeto de referência do módulo Cloud da Ada: catálogo e pedidos de uma padaria, com Next.js + S3 local e RDS, SQS, Lambda, SNS e SES na AWS.
+Projeto de referência do módulo Cloud da Ada: catálogo e pedidos de uma padaria, com Next.js rodando local e S3, RDS, SQS, Lambda, SNS e SES na AWS.
 
 ## Rodando local
 
