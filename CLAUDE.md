@@ -136,8 +136,15 @@ Gerenciador: npm.
 |---|---|
 | `npm run dev` | Next local |
 | `npm run lint` | ESLint |
-| `npm run build` | Build de produção (deve passar sempre) |
+| `npm run build` | Build de produção (deve passar sempre, inclusive sem `.env.local`) |
+| `npm test` | Vitest (`vitest run`), com mocks; sem AWS nem banco reais. Testes ficam ao lado do código (`lib/*.test.ts`); alias `@/*` configurado em `vitest.config.mts` |
 | `sam build` / `sam deploy --profile padaria` | Lambdas e infra, a partir da MYK-972 |
+
+Config ausente (clients lazy):
+- Nenhum client (pg, S3, SQS, SNS, SES) é criado no import; `npm run build` passa sem `.env.local`.
+- Variável obrigatória lida com `lerEnv(nome)` de `lib/config.ts`, que lança `ConfigAusenteError(nome)` (mensagem `<VAR> não configurada`).
+- Toda rota de `app/api` captura erros com `respostaDeErro(err)` de `lib/http.ts`: `ConfigAusenteError` -> `503 { erro }`, outros -> `500 { erro: "erro interno" }`.
+- Banco: `getPool()` de `lib/db.ts` (pool único por processo, via `globalThis`). `sql/schema.sql` é idempotente; `sql/seed.sql` roda uma vez.
 
 Regras do Next 16 neste repo:
 - `next.config.ts` NÃO pode habilitar `cacheComponents` (nem `partialPrefetching`): com Cache Components o Next 16 proíbe `export const runtime` (`node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/02-route-segment-config/runtime.md:24`), e toda rota precisa de `runtime = "nodejs"`.
