@@ -44,7 +44,7 @@ describe("POST /api/upload-url", () => {
       ContentType: "image/png",
       ContentLength: 1234,
     });
-    expect(opts).toEqual({ expiresIn: 300 });
+    expect(opts).toEqual({ expiresIn: 300, signableHeaders: new Set(["content-type"]) });
   });
 
   it.each([

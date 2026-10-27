@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lerTemplate, parseTemplate, recursosDoTipo } from "@/infra/template";
+import { lerTemplate, parseTemplate } from "@/infra/template";
 
 // Parse do template.yaml. Não substitui `sam validate --lint` (passo do aluno).
 // MYK-974/975: acrescente `describe` abaixo; o helper (infra/template.ts) já
@@ -30,7 +30,11 @@ describe("template.yaml - bucket de fotos", () => {
     expect(t.Parameters.AllowedOrigin.Default).toBe("http://localhost:3000");
   });
 
-  const [[, bucket]] = recursosDoTipo(t, "AWS::S3::Bucket");
+  const bucket = t.Resources.FotosBucket;
+
+  it("é um AWS::S3::Bucket", () => {
+    expect(bucket.Type).toBe("AWS::S3::Bucket");
+  });
 
   it("nome vem do parâmetro", () => {
     expect(bucket.Properties?.BucketName).toEqual({ Ref: "BucketName" });

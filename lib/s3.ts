@@ -20,7 +20,12 @@ declare global {
 // Client lazy (nunca no import). Credenciais: cadeia padrão do SDK.
 export function getS3(): S3Client {
   if (!globalThis.__padariaS3) {
-    globalThis.__padariaS3 = new S3Client({ region: lerEnv("AWS_REGION") });
+    globalThis.__padariaS3 = new S3Client({
+      region: lerEnv("AWS_REGION"),
+      // Com WHEN_SUPPORTED a URL assinada embute o CRC32 de um corpo vazio
+      // (x-amz-checksum-crc32) e o S3 rejeita a foto real com BadDigest.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+    });
   }
   return globalThis.__padariaS3;
 }
@@ -36,7 +41,9 @@ export async function urlParaUpload(
   const uploadUrl = await getSignedUrl(
     getS3(),
     new PutObjectCommand({ Bucket: bucket, Key: fotoKey, ContentType: contentType, ContentLength: tamanho }),
-    { expiresIn: VALIDADE_PUT_S },
+    // content-length já é assinado por padrão; content-type precisa ser pedido.
+    // O browser calcula content-length a partir do corpo (deve ser igual a `tamanho`).
+    { expiresIn: VALIDADE_PUT_S, signableHeaders: new Set(["content-type"]) },
   );
   return { uploadUrl, fotoKey };
 }
