@@ -24,6 +24,8 @@ FILA=$(aws cloudformation describe-stacks --stack-name <nome-do-stack> \
 DLQ=$(aws sqs get-queue-url --queue-name pedidos-dlq --query QueueUrl --output text)
 ```
 
+Ao subir o Next (`npm run dev`), use um terminal **sem** `AWS_PROFILE` (`unset AWS_PROFILE`): com o perfil exportado, o SDK ignora as chaves do `padaria-dev` no `.env.local` e o app roda com o admin sem avisar.
+
 Atalho para ver as duas filas de uma vez:
 
 ```bash

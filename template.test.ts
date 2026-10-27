@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 import { lerTemplate, parseTemplate } from "@/infra/template";
 
 // Parse do template.yaml. Não substitui `sam validate --lint` (passo do aluno).
-// MYK-974/975: acrescente `describe` abaixo; o helper (infra/template.ts) já
-// entende !Ref/!GetAtt/!Sub/!Join/... e oferece recursosDoTipo(t, "AWS::...").
+// O helper (infra/template.ts) já entende !Ref/!GetAtt/!Sub/!Join/... e oferece recursosDoTipo(t, "AWS::...").
 const t = lerTemplate();
 
 describe("parse das tags curtas", () => {

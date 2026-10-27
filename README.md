@@ -146,6 +146,8 @@ Preencha o `.env.local`: `AWS_REGION`, as chaves do `padaria-dev`, a `DATABASE_U
 npm run dev     # http://localhost:3000
 ```
 
+Rode o `npm run dev` em um terminal **sem** `AWS_PROFILE` (`unset AWS_PROFILE`): se ele estiver exportado (seção 2), o SDK prefere o perfil às chaves do `padaria-dev` no `.env.local` e o app roda em silêncio com o perfil admin.
+
 Teste o fluxo completo:
 
 1. `/itens/novo`: cadastre um item com foto (jpeg, png ou webp, até 5 MB).
