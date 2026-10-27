@@ -11,6 +11,14 @@ Parameters:
     Type: String
     Default: http://localhost:3000
     Description: Origem do Next liberada no CORS do bucket
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+    Description: "DATABASE_URL da processar-pedido. Para RDS termine a URL com ?uselibpqcompat=true&sslmode=require"
+  SnsTopicArn:
+    Type: String
+    Default: ""
+    Description: ARN do topico pedido-confirmado (preenchido quando o SNS entrar no template)
 
 Resources:
   FotosBucket:
@@ -33,7 +41,48 @@ Resources:
               - "*"
             MaxAge: 3000
 
+  PedidosDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: pedidos-dlq
+
+  PedidosQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: pedidos
+      VisibilityTimeout: 30
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt PedidosDlq.Arn
+        maxReceiveCount: 3
+
+  ProcessarPedidoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: processar-pedido
+      Runtime: nodejs22.x
+      Handler: index.handler
+      CodeUri: dist/processar-pedido/
+      Timeout: 25
+      Environment:
+        Variables:
+          DATABASE_URL: !Ref DatabaseUrl
+          SNS_TOPIC_ARN: !Ref SnsTopicArn
+      Policies:
+        - SQSPollerPolicy:
+            QueueName: !GetAtt PedidosQueue.QueueName
+      Events:
+        Pedidos:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt PedidosQueue.Arn
+            BatchSize: 5
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+
 Outputs:
   BucketName:
     Description: Valor de S3_BUCKET no .env.local
     Value: !Ref FotosBucket
+  PedidosQueueUrl:
+    Description: Valor de SQS_QUEUE_URL no .env.local
+    Value: !Ref PedidosQueue

@@ -1,6 +1,8 @@
 import { criarPedido, PedidoInvalidoError } from "@/lib/pedidos";
+import { ConfigAusenteError } from "@/lib/config";
 import { respostaDeErro } from "@/lib/http";
 import { checkoutSchema } from "@/lib/schemas";
+import { enviarPedido } from "@/lib/sqs";
 
 export const runtime = "nodejs";
 
@@ -20,7 +22,17 @@ export async function POST(req: Request) {
   }
   try {
     const pedidoId = await criarPedido(r.data);
-    // MYK-974: aqui, já com o COMMIT feito, enviar SendMessage { pedidoId }.
+    // O pedido já está commitado como 'recebido'. Falha ao enfileirar não pode virar
+    // 5xx: o client tentaria de novo e criaria um pedido duplicado.
+    try {
+      await enviarPedido(pedidoId);
+    } catch (err) {
+      if (err instanceof ConfigAusenteError) {
+        console.warn(`pedido ${pedidoId} gravado, mas não enfileirado: ${err.message}`);
+      } else {
+        console.error(`pedido ${pedidoId} gravado, mas falhou ao enfileirar`, err);
+      }
+    }
     return Response.json({ pedidoId }, { status: 202 });
   } catch (err) {
     if (err instanceof PedidoInvalidoError) {

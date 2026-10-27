@@ -24,9 +24,7 @@ export type Pedido = {
 // Grava o pedido 'recebido' numa única transação e devolve o id DEPOIS do COMMIT.
 // Preços vêm do banco (nunca do client) e ficam congelados em pedido_itens.valor_cents.
 // itemIds repetidos têm as quantidades somadas (PK é (pedido_id, item_id)).
-//
-// SEAM (MYK-974): a rota chama criarPedido() e, com o id já commitado, enfileira
-// SendMessage { pedidoId } antes de responder 202.
+// Quem chama (POST /api/checkout) enfileira o id via lib/sqs.ts depois do retorno.
 export async function criarPedido(dados: NovoPedido): Promise<string> {
   const quantidades = new Map<string, number>();
   for (const { itemId, quantidade } of dados.itens) {

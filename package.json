@@ -7,10 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:lambdas": "node lambdas/build.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1158.0",
+    "@aws-sdk/client-sqs": "^3.1158.0",
     "@aws-sdk/s3-request-presigner": "^3.1158.0",
     "next": "16.4.3",
     "pg": "^8.23.1",
@@ -19,11 +21,13 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/aws-lambda": "^8.10.164",
     "@types/node": "^22.20.5",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "aws-sdk-client-mock": "^4.1.0",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
     "typescript": "^5",
