@@ -81,7 +81,7 @@ claude mcp add aws-serverless -e AWS_REGION=us-east-1 -e AWS_PROFILE=padaria -- 
 
 Toda rota de `app/api` declara `export const runtime = "nodejs"` (o SDK da AWS não roda no Edge).
 
-Estrutura: `app/` (páginas `itens`, `itens/novo`, `itens/[id]`, `checkout`, `pedidos` + `api/*`), `lib/` (`db.ts` pool do pg, `s3.ts`, `sqs.ts`, `carrinho.ts` só no browser), `lambdas/` (`processar-pedido/handler.ts`, `enviar-email/handler.ts`, `build.mjs` esbuild -> `dist/*.zip`), `sql/schema.sql`.
+Estrutura: `app/` (páginas `itens`, `itens/novo`, `itens/[id]`, `checkout`, `pedidos` + `api/*`), `lib/` (`db.ts` pool do pg, `itens.ts` queries de itens + `urlDaFoto` (ponto único da foto), `schemas.ts` zod, `dinheiro.ts` centavos<->reais, `s3.ts`, `sqs.ts`, `carrinho.ts` só no browser), `lambdas/` (`processar-pedido/handler.ts`, `enviar-email/handler.ts`, `build.mjs` esbuild -> `dist/*.zip`), `sql/schema.sql`.
 
 ## Modelo de dados
 
