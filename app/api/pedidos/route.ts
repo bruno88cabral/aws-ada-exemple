@@ -1,5 +1,12 @@
+import { listarPedidos } from "@/lib/pedidos";
+import { respostaDeErro } from "@/lib/http";
+
 export const runtime = "nodejs";
 
 export async function GET() {
-  return Response.json({ erro: "não implementado" }, { status: 501 });
+  try {
+    return Response.json({ pedidos: await listarPedidos() });
+  } catch (err) {
+    return respostaDeErro(err);
+  }
 }
